@@ -135,14 +135,19 @@ class TestCompIRC2(ScoreTestUtlis):
                       tx_result_wait=4
                       )
         
-        self._score_address = self.deploy_tx(self.genesis_account,params)['scoreAddress']
+        self._score_address = self.deploy_tx(from_=self._test1,
+                                             to = SCORE_INSTALL_ADDRESS,
+                                             content = self.SCORE_PROJECT,
+                                             params = params)['scoreAddress']
     
     def _wallet_setup(self):
         self.icx_factor = 10 ** 18
         self.user1: 'KeyWallet' = self._wallet_array[7]
         self.user2: 'KeyWallet' = self._wallet_array[8]
         self.genesis_account = [
-            Account("test1", Address.from_string(self._test1.get_address()), 800_000_000 * self.icx_factor)
+            Account("test1", Address.from_string(self._test1.get_address()), 800_000_000 * self.icx_factor),
+            Account("user1", Address.from_string(self.user1.get_address()), 1_000_000 * self.icx_factor),
+            Account("user2", Address.from_string(self.user2.get_address()), 1_000_000 * self.icx_factor)
             ]
 
     
