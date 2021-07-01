@@ -2,7 +2,7 @@ from inspect import signature
 import json
 import os
 from typing import Union, List
-
+from iconsdk.exception import JSONRPCException
 from iconsdk.builder.call_builder import CallBuilder
 from iconsdk.builder.transaction_builder import TransactionBuilder, DeployTransactionBuilder, CallTransactionBuilder
 from iconsdk.exception import AddressException
@@ -31,12 +31,12 @@ class ScoreTestUtlis(IconIntegrateTestBase):
               network_delay_ms: int = tbears_server_config[TbConf.NETWORK_DELAY_MS],
               icon_service : IconService = None, 
               nid : int =  3,
-              tx_result_wait: int = 3
+              tx_result_wait: int = 5
               ):
         super().setUp(genesis_accounts, block_confirm_interval,network_only, network_delay_ms)
         self.icon_service = icon_service
         self.nid = nid 
-        self.tx_results_wait = tx_result_wait
+        self.tx_result_wait = tx_result_wait
         
     def deploy_tx(self, 
                   from_:KeyWallet,
@@ -45,7 +45,7 @@ class ScoreTestUtlis(IconIntegrateTestBase):
                   content: str = None,
                   params: dict = None) -> dict:
         signed_transaction = self.build_deploy_tx(from_,to, value, content, params)
-        tx_result = self.process_transaction(signed_transaction, network = self.icon_service, block_confirm_interval=self.tx_results_wait)
+        tx_result = self.process_transaction(signed_transaction, network = self.icon_service, block_confirm_interval=self.tx_result_wait)
         self.assertTrue('status' in tx_result, tx_result)
         self.assertEqual(1, tx_result['status'], f"Failure: {tx_result['failure']}" if tx_result['status'] == 0 else "")
         self.assertTrue('scoreAddress' in tx_result)
@@ -76,7 +76,18 @@ class ScoreTestUtlis(IconIntegrateTestBase):
             .build()
         signed_transaction = SignedTransaction(transaction, from_)
         return signed_transaction
-        
+    
+    def send_tx(self, from_: KeyWallet, to: str, value: int = 0, method: str = None, params: dict = None) -> dict:
+        print(f"------------Calling {method}, with params={params} to {to} contract----------")
+        signed_transaction = self.build_tx(from_, to, value, method, params)
+        tx_result = self.process_transaction(signed_transaction, self.icon_service, self.tx_result_wait)
+
+        self.assertTrue('status' in tx_result)
+        self.assertEqual(1, tx_result['status'], f"Failure: {tx_result['failure']}" if tx_result['status'] == 0 else "")
+        return tx_result
+
+    
+    
     def build_tx(self, from_: KeyWallet, to: str, value: int = 0, method: str = None, params: dict = None) \
             -> SignedTransaction:
         params = {} if params is None else params
@@ -93,10 +104,44 @@ class ScoreTestUtlis(IconIntegrateTestBase):
         signed_transaction = SignedTransaction(tx, from_)
         return signed_transaction
     
-    def call_tx(self, to: str, method: str, params: dict = None):
+    def send_icx(self, from_: KeyWallet, to: str, value: int):
+        previous_to_balance = self.get_balance(to)
+        previous_from_balance = self.get_balance(from_.get_address())
+
+        signed_icx_transaction = self.build_send_icx(from_, to, value)
+        tx_result = self.process_transaction(signed_icx_transaction, self.icon_service, self.tx_result_wait)
+
+        self.assertTrue('status' in tx_result, tx_result)
+        self.assertEqual(1, tx_result['status'], f"Failure: {tx_result['failure']}" if tx_result['status'] == 0 else "")
+        fee = tx_result['stepPrice'] * tx_result['cumulativeStepUsed']
+        self.assertEqual(previous_to_balance + value, self.get_balance(to))
+        self.assertEqual(previous_from_balance - value - fee, self.get_balance(from_.get_address()))
+
+    def build_send_icx(self, from_: KeyWallet, to: str, value: int,
+                       step_limit: int = 1000000, nonce: int = 3) -> SignedTransaction:
+        send_icx_transaction = TransactionBuilder(
+            from_=from_.get_address(),
+            to=to,
+            value=value,
+            step_limit=step_limit,
+            nid=self.nid,
+            nonce=nonce
+        ).build()
+        signed_icx_transaction = SignedTransaction(send_icx_transaction, from_)
+        return signed_icx_transaction
+
+    def get_balance(self, address: str) -> int:
+        if self.icon_service is not None:
+            return self.icon_service.get_balance(address)
+        params = {'address': Address.from_string(address)}
+        response = self.icon_service_engine.query(method="icx_getBalance", params=params)
+        return response
+    
+    
+    def call_tx(self,from_:str,to: str, method: str, params: dict = None):
     
         params = {} if params is None else params
-        call = CallBuilder(
+        call = CallBuilder(from_=from_,
             to=to,
             method=method,
             params=params
@@ -126,16 +171,18 @@ class TestCompIRC2(ScoreTestUtlis):
         '_cap':self.cap,
         '_paused':self.paused
         }
-        super().setUp(genesis_accounts=self.genesis_account,
+        super().setUp(genesis_accounts=self.genesis_accounts,
                       block_confirm_interval=2,
                       network_delay_ms=0,
-                      network_only=True,
-                      icon_service=IconService(HTTPProvider("http://127.0.0.1:9000", 3)),
+                      network_only=False,
+                      icon_service=None,
                       nid=3,
                       tx_result_wait=4
                       )
-        
-        self._score_address = self.deploy_tx(from_=self._test1,
+        self.send_icx(self._test1, self.user1.get_address(), 1_000_000 * self.icx_factor)
+        self.send_icx(self._test1, self.user2.get_address(), 1_000_000 * self.icx_factor)
+
+        self._score_address = self.deploy_tx(from_=self.user1,
                                              to = SCORE_INSTALL_ADDRESS,
                                              content = self.SCORE_PROJECT,
                                              params = params)['scoreAddress']
@@ -144,20 +191,53 @@ class TestCompIRC2(ScoreTestUtlis):
         self.icx_factor = 10 ** 18
         self.user1: 'KeyWallet' = self._wallet_array[7]
         self.user2: 'KeyWallet' = self._wallet_array[8]
-        self.genesis_account = [
-            Account("test1", Address.from_string(self._test1.get_address()), 800_000_000 * self.icx_factor),
-            Account("user1", Address.from_string(self.user1.get_address()), 1_000_000 * self.icx_factor),
-            Account("user2", Address.from_string(self.user2.get_address()), 1_000_000 * self.icx_factor)
+        self.genesis_accounts = [
+            
+            Account("user1", Address.from_string(self.user1.get_address()), 10_000_000 * self.icx_factor),
+            Account("user2", Address.from_string(self.user2.get_address()), 10_000_000 * self.icx_factor),
+            Account("test1", Address.from_string(self._test1.get_address()), 800_000_000 * self.icx_factor)
             ]
-
+        
     
-    # def test_score_update(self):
-    #     # update SCORE
-    #     tx_result = self.deploy_tx(to=self._score_address)
+    
+    def test_score_update(self):
+        # update SCORE
+        tx_result = self.deploy_tx(from_ = self.user1,
+                                   to=self._score_address,
+                                    content = self.SCORE_PROJECT)
 
-    #     self.assertEqual(self._score_address, tx_result['scoreAddress'])
+        self.assertEqual(self._score_address, tx_result['scoreAddress'])
     
     def test_total_supply(self):
-        to = self._test1
-        response = self.call_tx(to , 'totalSupply')
-        self.assertEqual(self.initial_supply*10**self.decimals, response)
+        params= {
+        '_owner': self.user1.get_address()
+        }
+        print(f'score address {self.user1.get_address()}')
+        print(f'score address {self._score_address}')
+        response = self.call_tx(from_ = self.user1.get_address(),to=self._score_address , method ='balanceOf',
+                                 params = params)
+        self.assertEqual(hex(self.initialSupply*10**self.decimals), response)
+        
+    def test_minting(self):
+        owner = self.user1
+        receiver = self.user2.get_address()
+        value = 50
+        params = {
+            '_to' : receiver,
+            '_value' : value
+        }
+        resp=self.send_tx(from_= owner,
+                           to = self._score_address, 
+                           method = 'mintTo',
+                           params = params)
+        params = {
+            "_owner" : receiver 
+        }
+        #value check
+        res = self.call_tx(from_ = receiver,
+                            to = self._score_address,
+                           method = 'balanceOf',
+                           params = params)
+        self.assertEqual(hex(value),res)
+    
+    
