@@ -181,12 +181,14 @@ class TestCompIRC2(ScoreTestUtlis):
                       )
         self.send_icx(self._test1, self.user1.get_address(), 1_000_000 * self.icx_factor)
         self.send_icx(self._test1, self.user2.get_address(), 1_000_000 * self.icx_factor)
+        self._deploy_conc(params)
 
+    def _deploy_conc(self,params):
         self._score_address = self.deploy_tx(from_=self.user1,
                                              to = SCORE_INSTALL_ADDRESS,
                                              content = self.SCORE_PROJECT,
                                              params = params)['scoreAddress']
-    
+        
     def _wallet_setup(self):
         self.icx_factor = 10 ** 18
         self.user1: 'KeyWallet' = self._wallet_array[7]
