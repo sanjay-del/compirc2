@@ -31,7 +31,7 @@ class ScoreTestUtlis(IconIntegrateTestBase):
               network_delay_ms: int = tbears_server_config[TbConf.NETWORK_DELAY_MS],
               icon_service : IconService = None, 
               nid : int =  3,
-              tx_result_wait: int = 5
+              tx_result_wait: int = 3
               ):
         super().setUp(genesis_accounts, block_confirm_interval,network_only, network_delay_ms)
         self.icon_service = icon_service
@@ -174,10 +174,10 @@ class TestCompIRC2(ScoreTestUtlis):
         super().setUp(genesis_accounts=self.genesis_accounts,
                       block_confirm_interval=2,
                       network_delay_ms=0,
-                      network_only=False,
-                      icon_service=None,
+                      network_only=True,
+                      icon_service=IconService(HTTPProvider("http://127.0.0.1:9000", 3)),
                       nid=3,
-                      tx_result_wait=4
+                      tx_result_wait=5
                       )
         self.send_icx(self._test1, self.user1.get_address(), 1_000_000 * self.icx_factor)
         self.send_icx(self._test1, self.user2.get_address(), 1_000_000 * self.icx_factor)
