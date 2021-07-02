@@ -177,7 +177,7 @@ class TestCompIRC2(ScoreTestUtlis):
                       network_only=True,
                       icon_service=IconService(HTTPProvider("http://127.0.0.1:9000", 3)),
                       nid=3,
-                      tx_result_wait=5
+                      tx_result_wait=4
                       )
         self.send_icx(self._test1, self.user1.get_address(), 1_000_000 * self.icx_factor)
         self.send_icx(self._test1, self.user2.get_address(), 1_000_000 * self.icx_factor)
